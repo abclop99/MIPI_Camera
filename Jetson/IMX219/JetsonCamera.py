@@ -24,12 +24,14 @@ import sys
 
 
 def gstreamer_pipeline(
-    capture_width=1280,
-    capture_height=720,
-    display_width=640,
-    display_height=360,
-    framerate=60,
-    flip_method=0,
+    capture_width=1920,
+    capture_height=1080,
+    #display_width=640,
+    #display_height=360,
+    display_width=1920,
+    display_height=1080,
+    framerate=30,
+    flip_method=2,
 ):
     return (
         "nvarguscamerasrc ! "
@@ -107,7 +109,7 @@ class Camera(object):
         self.open_camera()
 
     def open_camera(self):
-        self.cap = cv2.VideoCapture(gstreamer_pipeline(flip_method=0), cv2.CAP_GSTREAMER)
+        self.cap = cv2.VideoCapture(gstreamer_pipeline(flip_method=2), cv2.CAP_GSTREAMER)
         if not self.cap.isOpened():
             raise RuntimeError("Failed to open camera!")
         if self.frame_reader == None:

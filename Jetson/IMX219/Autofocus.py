@@ -34,15 +34,15 @@ def laplacian(img):
 # Flip the image by setting the flip_method (most common values: 0 and 2)
 # display_width and display_height determine the size of the window on the screen
 
-def gstreamer_pipeline (capture_width=1280, capture_height=720, display_width=640, display_height=360, framerate=60, flip_method=0) :   
+def gstreamer_pipeline (capture_width=3280, capture_height=1848, display_width=3280, display_height=1848, framerate=28, flip_method=2) : 
     return ('nvarguscamerasrc ! ' 
     'video/x-raw(memory:NVMM), '
     'width=(int)%d, height=(int)%d, '
     'format=(string)NV12, framerate=(fraction)%d/1 ! '
     'nvvidconv flip-method=%d ! '
-    'video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! '
+    'video/x-raw, format=(string)BGRx ! '
     'videoconvert ! '
-    'video/x-raw, format=(string)BGR ! appsink'  % (capture_width,capture_height,framerate,flip_method,display_width,display_height))
+    'video/x-raw, format=(string)BGR ! appsink'  % (capture_width,capture_height,framerate,flip_method))
 
 def show_camera():
     max_index = 10
@@ -52,8 +52,8 @@ def show_camera():
     focal_distance = 10
     focus_finished = False
     # To flip the image, modify the flip_method parameter (0 and 2 are the most common)
-    print gstreamer_pipeline(flip_method=0)
-    cap = cv2.VideoCapture(gstreamer_pipeline(flip_method=0), cv2.CAP_GSTREAMER)
+    print gstreamer_pipeline(flip_method=2)
+    cap = cv2.VideoCapture(gstreamer_pipeline(flip_method=2), cv2.CAP_GSTREAMER)
     focusing(focal_distance)
     skip_frame = 2
     if cap.isOpened():

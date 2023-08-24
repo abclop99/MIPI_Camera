@@ -107,7 +107,7 @@ def parse_cmdline():
 # parse input key
 def parseKey(k,focuser,auto_focus,camera):
     global image_count
-    focus_step  = 50
+    focus_step  = 10
     if k == ord('r'):
         focuser.reset(Focuser.OPT_FOCUS)
     elif k == curses.KEY_UP:
