@@ -45,6 +45,7 @@ class Focuser:
         value = (value << 4) & 0x3ff0
         data1 = (value >> 8) & 0x3f
         data2 = value & 0xf0
+        print("i2cset -y {} 0x{:02X} {} {}".format(self.bus, chip_addr, data1, data2))
         os.system("i2cset -y {} 0x{:02X} {} {}".format(self.bus, chip_addr, data1, data2))
 
     OPT_BASE    = 0x1000
@@ -81,13 +82,49 @@ class Focuser:
 
 pass 
 
+def parse_cmdline():
+    import argparse
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('-i', '--i2c-bus', type=int, nargs=None, required=True,
+                        help='Set i2c bus, for A02 is 6, for B01 is 7 or 8, for Jetson Xavier NX it is 9 and 10.')
+
+    return parser.parse_args()
+
+def gstreamer_pipeline (capture_width=3280, capture_height=1848, display_width=3280, display_height=1848, framerate=28, flip_method=2) : 
+    return ('nvarguscamerasrc ! ' 
+    'video/x-raw(memory:NVMM), '
+    'width=(int)%d, height=(int)%d, '
+    'format=(string)NV12, framerate=(fraction)%d/1 ! '
+    'nvvidconv flip-method=%d ! '
+    'video/x-raw, format=(string)BGRx ! '
+    'videoconvert ! '
+    'video/x-raw, format=(string)BGR ! appsink'  % (capture_width,capture_height,framerate,flip_method))
+
+def show_image(cap):
+    ret_val, img = cap.read()
+    cv2.imshow('CSI Camera', img)
+
 def test():
-    focuser = Focuser(7)
-    focuser.set(Focuser.OPT_FOCUS, 0)
-    time.sleep(3)
-    focuser.set(Focuser.OPT_FOCUS, 1000)
-    time.sleep(3)
-    focuser.reset(Focuser.OPT_FOCUS)
+    import cv2
+    args = parse_cmdline()
+
+    # Open camera
+    print gstreamer_pipeline()
+    cap = cv2.VideoCapture(gstreamer_pipeline(), cv2.CAP_GSTREAMER)
+    if cap.isOpened:
+        focuser = Focuser(args.i2c_bus)    # Initialize with I2C bus number
+        focuser.set(Focuser.OPT_FOCUS, 0)
+        time.sleep(3)
+        focuser.set(Focuser.OPT_FOCUS, 1000)
+        time.sleep(3)
+        focuser.reset(Focuser.OPT_FOCUS)
+
+        #Close camera
+        cap.release()
+        cv2.destroyAllWindows()
+    else:
+        print 'Unable to open camera'
 
 if __name__ == "__main__":
     test()
