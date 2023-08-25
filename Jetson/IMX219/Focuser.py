@@ -45,7 +45,7 @@ class Focuser:
         value = (value << 4) & 0x3ff0
         data1 = (value >> 8) & 0x3f
         data2 = value & 0xf0
-        print("i2cset -y {} 0x{:02X} {} {}".format(self.bus, chip_addr, data1, data2))
+        #print("i2cset -y {} 0x{:02X} {} {}".format(self.bus, chip_addr, data1, data2))
         os.system("i2cset -y {} 0x{:02X} {} {}".format(self.bus, chip_addr, data1, data2))
 
     OPT_BASE    = 0x1000
