@@ -39,6 +39,10 @@ def show_camera(
     face_detector = FaceDetector(0.75)
     focuser = Focuser(args.i2c_bus)
 
+    # Reset focus to 0
+    focus = 0
+    focuser.set(Focuser.OPT_FOCUS, focus)
+
     while cv2.getWindowProperty(window_name, 0) >= 0 and cap.isOpened():
         ret_val, img = cap.read()
 
@@ -58,13 +62,19 @@ def show_camera(
             pass
         elif keycode == 82:
             # Up
-            print("Up")
+            focus += 10
+            if focus > 1000: focus = 1000
+            print("Focus:", focus)
+            focuser.set(Focuser.OPT_FOCUS, focus)
         elif keycode == 83:
             # Right
             pass
         elif keycode == 84:
             # Down
-            print("Down")
+            focus -= 10
+            if focus < 0: focus = 0
+            print("Focus:", focus)
+            focuser.set(Focuser.OPT_FOCUS, focus)
 
     # Close/clean up camera and window
     cap.release()
