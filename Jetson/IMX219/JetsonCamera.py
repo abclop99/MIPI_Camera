@@ -104,7 +104,7 @@ class Previewer(threading.Thread):
             frame = self.camera.getFrame(2000)
 
             if self.frame_preview_func != None:
-                frame, _ = self.frame_preview_func(frame)
+                frame = self.frame_preview_func(frame)
 
             cv2.imshow(self.window_name, frame)
             keyCode = cv2.waitKey(16) & 0xFF

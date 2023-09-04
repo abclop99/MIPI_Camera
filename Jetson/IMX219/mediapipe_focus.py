@@ -183,7 +183,9 @@ def main():
     
     #open camera and face detector
     face_detector = FaceDetector(0.6)
-    camera = Camera(frame_preview_func=face_detector.findFaces)
+    camera = Camera(
+        frame_preview_func=lambda f : face_detector.findFaces(f)[0]
+    )
     
     #open camera preview
     camera.start_preview()
