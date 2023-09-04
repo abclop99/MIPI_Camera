@@ -16,6 +16,8 @@ import  threading
 import signal
 import sys
 
+import numpy as np
+
 
 # def signal_handler(sig, frame):
 #     print('You pressed Ctrl+C!')
@@ -83,15 +85,28 @@ class Previewer(threading.Thread):
     window_name = "Arducam"
     _running = True
     camera = None
-    def __init__(self, camera, name):
+    frame_preview_func = None
+
+    def __init__(
+        self,
+        camera,
+        name,
+        frame_preview_func = None
+    ):
         threading.Thread.__init__(self)
         self.name = name
         self.camera = camera
+        self.frame_preview_func = frame_preview_func
     
     def run(self):
         self._running = True
         while self._running:
-            cv2.imshow(self.window_name, self.camera.getFrame(2000))
+            frame = self.camera.getFrame(2000)
+
+            if self.frame_preview_func != None:
+                frame, _ = self.frame_preview_func(frame)
+
+            cv2.imshow(self.window_name, frame)
             keyCode = cv2.waitKey(16) & 0xFF
         cv2.destroyWindow(self.window_name)
 
@@ -105,7 +120,13 @@ class Camera(object):
     cap = None
     previewer = None
 
-    def __init__(self):
+    frame_preview_func = None
+
+    def __init__(
+        self,
+        frame_preview_func = None,
+    ):
+        self.frame_preview_func = frame_preview_func
         self.open_camera()
 
     def open_camera(self):
@@ -116,7 +137,11 @@ class Camera(object):
             self.frame_reader = FrameReader(self.cap, "")
             self.frame_reader.daemon = True
             self.frame_reader.start()
-        self.previewer = Previewer(self.frame_reader, "")
+        self.previewer = Previewer(
+            self.frame_reader,
+            "",
+            frame_preview_func=self.frame_preview_func,
+        )
 
     def getFrame(self):
         return self.frame_reader.getFrame()
