@@ -1,13 +1,20 @@
 import mediapipe as mp
 import cv2 as cv
 import time
-
+import threading
 
 class FaceDetector:
+    event = None
+    results = None
+    frame = None
+    bboxs = None
+    
     def __init__(self, minDetectionCon=0.5):
         self.mpFaceDetection = mp.solutions.face_detection
         self.mpDraw = mp.solutions.drawing_utils
         self.facedetection = self.mpFaceDetection.FaceDetection(min_detection_confidence=minDetectionCon)
+
+        self.event = threading.Event()
 
     def findFaces(self, frame):
         img_RGB = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
@@ -24,6 +31,11 @@ class FaceDetector:
                 cv.putText(frame, f'{int(detection.score[0] * 100)}%',
                            (bbox[0], bbox[1] - 20), cv.FONT_HERSHEY_PLAIN,
                            3, (255, 0, 255), 2)
+
+        self.frame = frame
+        self.bboxs = bboxs
+        
+        self.event.set()
         return frame, bboxs
 
     def fancyDraw(self, frame, bbox, l=30, t=10):

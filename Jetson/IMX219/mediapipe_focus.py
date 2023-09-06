@@ -33,7 +33,9 @@ from JetsonCamera import Camera
 
 from Focuser import Focuser
 from mp_FaceDetection import FaceDetector
-# from AutoFocus import AutoFocus
+
+import threading
+
 import curses
 
 global image_count
@@ -49,15 +51,17 @@ def RenderStatusBar(stdscr):
     stdscr.attroff(curses.color_pair(3))
 # Rendering description
 def RenderDescription(stdscr):
-    quit_desc       = "Quit     : 'q' Key"
-    focus_desc      = "Focus    : Up-Down Arrow"
-    snapshot_desc   = "Snapshot : 'c' Key"
+    quit_desc        = "Quit \t\t: 'q' Key"
+    focus_desc       = "Focus \t\t: Up-Down Arrow"
+    snapshot_desc    = "Snapshot \t: 'c' Key"
+    autofocus_desc   = "Autofocus \t: 'f' Key"
 
     desc_y = 1
     
     stdscr.addstr(desc_y + 1, 0, quit_desc, curses.color_pair(1))
     stdscr.addstr(desc_y + 2, 0, focus_desc, curses.color_pair(1))
     stdscr.addstr(desc_y + 3, 0, snapshot_desc, curses.color_pair(1))
+    stdscr.addstr(desc_y + 4, 0, autofocus_desc, curses.color_pair(1))
 # Rendering  middle text
 def RenderMiddleText(stdscr,k,focuser):
     # get height and width of the window.
@@ -108,14 +112,20 @@ def parse_cmdline():
     return parser.parse_args()
 
 # parse input key
-def parseKey(k,focuser,auto_focus,camera):
+def parseKey(k,focuser,autofocuser, face_detector,camera):
     global image_count
     focus_step  = 10
     if k == ord('r'):
+        autofocuser.stop_autofocus(set_focus=False)
         focuser.reset(Focuser.OPT_FOCUS)
+    elif k == ord('f'):
+        # Autofocus
+        autofocuser.start_autofocus()
     elif k == curses.KEY_UP:
+        autofocuser.stop_autofocus(set_focus=False)
         focuser.set(Focuser.OPT_FOCUS,focuser.get(Focuser.OPT_FOCUS) + focus_step)
     elif k == curses.KEY_DOWN:
+        autofocuser.stop_autofocus(set_focus=False)
         focuser.set(Focuser.OPT_FOCUS,focuser.get(Focuser.OPT_FOCUS) - focus_step)
     # elif k == 10:
     #     auto_focus.startFocus()
@@ -130,11 +140,10 @@ def parseKey(k,focuser,auto_focus,camera):
 
 # Python curses example Written by Clay McLeod
 # https://gist.github.com/claymcleod/b670285f334acd56ad1c
-def draw_menu(stdscr, camera, i2c_bus):
+def draw_menu(stdscr, camera, face_detector, i2c_bus):
     focuser = Focuser(i2c_bus)
-    # auto_focus = AutoFocus(focuser,camera)
-    auto_focus = None
-    
+    autofocuser = Autofocuser(focuser, face_detector)
+    autofocuser.start()
 
     k = 0
     cursor_x = 0
@@ -160,11 +169,13 @@ def draw_menu(stdscr, camera, i2c_bus):
         height, width = stdscr.getmaxyx()
 
         # parser input key
-        parseKey(k,focuser,auto_focus,camera)
+        parseKey(k,focuser,autofocuser,face_detector,camera)
 
         # Rendering some text
         whstr = "Width: {}, Height: {}".format(width, height)
         stdscr.addstr(0, 0, whstr, curses.color_pair(1))
+        
+        stdscr.addstr(10, 0, f"Bboxes: {face_detector.bboxs}", curses.color_pair(1))
 
         # render key description
         RenderDescription(stdscr)
@@ -178,11 +189,126 @@ def draw_menu(stdscr, camera, i2c_bus):
         # Wait for next input
         k = stdscr.getch()
 
+def laplacian(img):
+	img_gray = cv2.cvtColor(img,cv2.COLOR_RGB2GRAY)
+	img_sobel = cv2.Laplacian(img_gray,cv2.CV_16U)
+	return cv2.mean(img_sobel)[0]
+
+class Autofocuser(threading.Thread):
+    focuser = None
+    face_detector = None
+    _running = False
+
+    event = threading.Event()
+
+    focus_step = 10
+    
+    best_focus = None
+    best_metric = None
+    frames_since_improvement = 0
+
+    def __init__(
+        self,
+        focuser: Focuser,
+        face_detector: FaceDetector,
+        focus_step = 10,
+        starting_focus = 170, # Skip useless range
+        name="Autofocuser",
+        daemon=True,
+    ):
+        threading.Thread.__init__(
+            self,
+            name=name,
+            daemon=daemon,
+        )
+        self.focuser = focuser
+        self.face_detector = face_detector
+        self.focus_step = focus_step
+        self.starting_focus = starting_focus
+
+    def run(self):
+        while True:
+            # Set initial focus value
+            self.focuser.set(Focuser.OPT_FOCUS, self.starting_focus)
+
+            while self._running:
+                # Get frame and bounding boxes
+                frame = self.face_detector.frame
+                bboxs = self.face_detector.bboxs
+
+                #
+                if frame is not None:
+
+                    # Evaluate focus
+                    metric = laplacian(frame)
+
+                    # Set best focus and metric if better
+                    if self.best_focus is None:
+                        self.best_focus = self.focuser.get(Focuser.OPT_FOCUS)
+                        self.best_metric = metric
+                        self.frames_since_improvement = 0
+                    elif metric > self.best_metric:
+                        self.best_focus = self.focuser.get(Focuser.OPT_FOCUS)
+                        self.best_metric = metric
+                        self.frames_since_improvement = 0
+                    elif metric < self.best_focus * 0.75:
+                        self.frames_since_improvement += 1
+
+                # Stop if focus value reaches max
+                if self.focuser.get(Focuser.OPT_FOCUS) >= 1000:
+                    self.stop_autofocus()
+                # Stop if metric keeps getting worse for long enough
+                elif self.frames_since_improvement > 6:
+                    self.stop_autofocus()
+                # Set next focus and
+                # Wait for next frame to be detected
+                else:
+                    # Set next focus value
+                    self.focuser.set(
+                        Focuser.OPT_FOCUS,
+                        self.focuser.get(Focuser.OPT_FOCUS) + self.focus_step
+                    )
+
+                    self.face_detector.event.clear()
+                    self.face_detector.event.wait()
+                    self.face_detector.event.clear()
+
+            # Sleep until awaken to start again
+            # Event is cleared in self.stop_autofocus()
+            self.event.wait()
+            self.event.clear()
+
+    def start_autofocus(self,):
+        """
+        Start/restart autofocus search
+        - Sets/resets search variables
+        """
+        # Set running and wake up thread
+        self._running = True
+        self.event.set()
+
+        self.best_focus = None
+
+    def stop_autofocus(self,set_focus=True):
+        """
+        Ends autofocus search and sets focus to best found
+        unless False
+        """
+        self._running = False
+        self.event.clear()
+
+        if set_focus:
+            if self.best_focus is not None:
+                self.focuser.set(
+                    Focuser.OPT_FOCUS,
+                    self.best_focus,
+                )
+
 def main():
     args = parse_cmdline()
     
     #open camera and face detector
-    face_detector = FaceDetector(0.6)
+    face_detector = FaceDetector(0.4)
     camera = Camera(
         frame_preview_func=lambda f : face_detector.findFaces(f)[0]
     )
@@ -190,7 +316,7 @@ def main():
     #open camera preview
     camera.start_preview()
     print(args.i2c_bus)
-    curses.wrapper(draw_menu, camera, args.i2c_bus)
+    curses.wrapper(draw_menu, camera, face_detector, args.i2c_bus)
 
     camera.stop_preview()
     camera.close()
