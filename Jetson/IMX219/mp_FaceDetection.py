@@ -7,6 +7,7 @@ class FaceDetector:
     event = None
     results = None
     frame = None
+    bframe = None
     bboxs = None
     
     def __init__(self, minDetectionCon=0.5):
@@ -17,6 +18,7 @@ class FaceDetector:
         self.event = threading.Event()
 
     def findFaces(self, frame):
+        self.frame = frame
         img_RGB = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
         self.results = self.facedetection.process(img_RGB)
         bboxs = []
@@ -32,7 +34,7 @@ class FaceDetector:
                            (bbox[0], bbox[1] - 20), cv.FONT_HERSHEY_PLAIN,
                            3, (255, 0, 255), 2)
 
-        self.frame = frame
+        self.bframe = frame
         self.bboxs = bboxs
         
         self.event.set()

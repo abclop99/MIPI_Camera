@@ -212,7 +212,7 @@ class Autofocuser(threading.Thread):
         focuser: Focuser,
         face_detector: FaceDetector,
         focus_step = 10,
-        starting_focus = 170, # Skip useless range
+        starting_focus = 0, # Skip useless range
         name="Autofocuser",
         daemon=True,
     ):
@@ -231,7 +231,18 @@ class Autofocuser(threading.Thread):
             # Set initial focus value
             self.focuser.set(Focuser.OPT_FOCUS, self.starting_focus)
 
+            # wait some extra cycles for the focus to
+            # change completely
+            for _ in range(5):
+                self.face_detector.event.clear()
+                self.face_detector.event.wait()
+
             while self._running:
+
+                # Wait for next frame to be processed
+                self.face_detector.event.clear()
+                self.face_detector.event.wait()
+                
                 # Get frame and bounding boxes
                 frame = self.face_detector.frame
                 bboxs = self.face_detector.bboxs
@@ -251,8 +262,10 @@ class Autofocuser(threading.Thread):
                         self.best_focus = self.focuser.get(Focuser.OPT_FOCUS)
                         self.best_metric = metric
                         self.frames_since_improvement = 0
-                    elif metric < self.best_focus * 0.75:
+                    elif metric < self.best_focus * 0.6 and self.focuser.get(Focuser.OPT_FOCUS) > 200:
                         self.frames_since_improvement += 1
+
+                    # print(f"Best focus: {self.best_focus}\tBest metric: {self.best_metric}\tCurrent metric: {metric} frames_since_blah: {self.frames_since_improvement}")
 
                 # Stop if focus value reaches max
                 if self.focuser.get(Focuser.OPT_FOCUS) >= 1000:
@@ -269,10 +282,6 @@ class Autofocuser(threading.Thread):
                         self.focuser.get(Focuser.OPT_FOCUS) + self.focus_step
                     )
 
-                    self.face_detector.event.clear()
-                    self.face_detector.event.wait()
-                    self.face_detector.event.clear()
-
             # Sleep until awaken to start again
             # Event is cleared in self.stop_autofocus()
             self.event.wait()
@@ -288,6 +297,7 @@ class Autofocuser(threading.Thread):
         self.event.set()
 
         self.best_focus = None
+        self.best_metric = None
 
     def stop_autofocus(self,set_focus=True):
         """
