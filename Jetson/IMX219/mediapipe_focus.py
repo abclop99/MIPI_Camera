@@ -189,10 +189,11 @@ def draw_menu(stdscr, camera, face_detector, i2c_bus):
         # Wait for next input
         k = stdscr.getch()
 
-def laplacian(img):
+def laplacian(img, mask=None):
 	img_gray = cv2.cvtColor(img,cv2.COLOR_RGB2GRAY)
 	img_sobel = cv2.Laplacian(img_gray,cv2.CV_16U)
-	return cv2.mean(img_sobel)[0]
+	# return cv2.mean(img_sobel, mask)[0]
+	return py.average(img_sobel, weights=mask)
 
 class Autofocuser(threading.Thread):
     focuser = None
@@ -212,7 +213,7 @@ class Autofocuser(threading.Thread):
         focuser: Focuser,
         face_detector: FaceDetector,
         focus_step = 10,
-        starting_focus = 0, # Skip useless range
+        starting_focus = 100, # Skip useless range
         name="Autofocuser",
         daemon=True,
     ):
@@ -228,59 +229,71 @@ class Autofocuser(threading.Thread):
 
     def run(self):
         while True:
-            # Set initial focus value
-            self.focuser.set(Focuser.OPT_FOCUS, self.starting_focus)
+            if self._running:
+                # Set initial focus value
+                self.focuser.set(Focuser.OPT_FOCUS, self.starting_focus)
 
-            # wait some extra cycles for the focus to
-            # change completely
-            for _ in range(5):
-                self.face_detector.event.clear()
-                self.face_detector.event.wait()
+                bboxs = []
 
-            while self._running:
+                # Wait some extra cycles for the focus to
+                # change completely
+                # And a chance to capture some bboxs
+                for _ in range(5):
+                    self.face_detector.event.clear()
+                    self.face_detector.event.wait()
 
-                # Wait for next frame to be processed
-                self.face_detector.event.clear()
-                self.face_detector.event.wait()
+                    bboxs.extend(self.face_detector.bboxs)
+
+                # Create a weight mask from the bboxs
+                mask = py.ones_like(self.face_detector.frame[:,:,0]) * 0.0001
+                # Add bounding boxes
+                for _, bbox, confidence in bboxs:
+                    mask[bbox[0]:bbox[0]+bbox[2], bbox[1]+bbox[2]] = 1#confidence[0]
+
+                while self._running:
+
+                    # Wait for next frame to be processed
+                    self.face_detector.event.clear()
+                    self.face_detector.event.wait()
                 
-                # Get frame and bounding boxes
-                frame = self.face_detector.frame
-                bboxs = self.face_detector.bboxs
+                    # Get frame and bounding boxes
+                    frame = self.face_detector.frame
+                    bboxs = self.face_detector.bboxs
 
-                #
-                if frame is not None:
+                    #
+                    if frame is not None:
 
-                    # Evaluate focus
-                    metric = laplacian(frame)
+                        # Evaluate focus
+                        metric = laplacian(frame, mask)
 
-                    # Set best focus and metric if better
-                    if self.best_focus is None:
-                        self.best_focus = self.focuser.get(Focuser.OPT_FOCUS)
-                        self.best_metric = metric
-                        self.frames_since_improvement = 0
-                    elif metric > self.best_metric:
-                        self.best_focus = self.focuser.get(Focuser.OPT_FOCUS)
-                        self.best_metric = metric
-                        self.frames_since_improvement = 0
-                    elif metric < self.best_focus * 0.6 and self.focuser.get(Focuser.OPT_FOCUS) > 200:
-                        self.frames_since_improvement += 1
+                        # Set best focus and metric if better
+                        if self.best_focus is None:
+                            self.best_focus = self.focuser.get(Focuser.OPT_FOCUS)
+                            self.best_metric = metric
+                            self.frames_since_improvement = 0
+                        elif metric > self.best_metric:
+                            self.best_focus = self.focuser.get(Focuser.OPT_FOCUS)
+                            self.best_metric = metric
+                            self.frames_since_improvement = 0
+                        elif metric < self.best_focus * 0.6 and self.focuser.get(Focuser.OPT_FOCUS) > 200:
+                            self.frames_since_improvement += 1
 
-                    # print(f"Best focus: {self.best_focus}\tBest metric: {self.best_metric}\tCurrent metric: {metric} frames_since_blah: {self.frames_since_improvement}")
+                        # print(f"Best focus: {self.best_focus}\tBest metric: {self.best_metric}\tCurrent metric: {metric} frames_since_blah: {self.frames_since_improvement}")
 
-                # Stop if focus value reaches max
-                if self.focuser.get(Focuser.OPT_FOCUS) >= 1000:
-                    self.stop_autofocus()
-                # Stop if metric keeps getting worse for long enough
-                elif self.frames_since_improvement > 6:
-                    self.stop_autofocus()
-                # Set next focus and
-                # Wait for next frame to be detected
-                else:
-                    # Set next focus value
-                    self.focuser.set(
-                        Focuser.OPT_FOCUS,
-                        self.focuser.get(Focuser.OPT_FOCUS) + self.focus_step
-                    )
+                    # Stop if focus value reaches max
+                    if self.focuser.get(Focuser.OPT_FOCUS) >= 1000:
+                        self.stop_autofocus()
+                    # Stop if metric keeps getting worse for long enough
+                    elif self.frames_since_improvement > 6:
+                        self.stop_autofocus()
+                    # Set next focus and
+                    # Wait for next frame to be detected
+                    else:
+                        # Set next focus value
+                        self.focuser.set(
+                            Focuser.OPT_FOCUS,
+                            self.focuser.get(Focuser.OPT_FOCUS) + self.focus_step
+                        )
 
             # Sleep until awaken to start again
             # Event is cleared in self.stop_autofocus()
