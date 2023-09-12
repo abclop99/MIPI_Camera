@@ -245,10 +245,10 @@ class Autofocuser(threading.Thread):
                     bboxs.extend(self.face_detector.bboxs)
 
                 # Create a weight mask from the bboxs
-                mask = py.ones_like(self.face_detector.frame[:,:,0]) * 0.0001
+                mask = py.ones_like(self.face_detector.frame[:,:,0]) * 1e-4
                 # Add bounding boxes
                 for _, bbox, confidence in bboxs:
-                    mask[bbox[0]:bbox[0]+bbox[2], bbox[1]+bbox[2]] = 1#confidence[0]
+                    mask[bbox[0]:bbox[0]+bbox[2], bbox[1]:bbox[1]+bbox[3]] = 1#confidence[0]
 
                 while self._running:
 
